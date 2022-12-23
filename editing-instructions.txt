@@ -1,0 +1,8 @@
+
+To see files that can be overriden:
+open $(bundle info --path minima)
+
+To override $(bundle info --path minima)/_layouts/home.html (for example)
+create copy $(bundle info --path minima)/_layouts into _layouts
+and edit _layouts/home.html.
+
