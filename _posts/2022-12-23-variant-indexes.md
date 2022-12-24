@@ -2,7 +2,7 @@
 layout: post
 title:  "Variant Indexes in Data Warehouses"
 date:   2022-12-23 09:09:55 -0500
-categories: dbms-indexes
+categories: dbms indexes
 ---
 This is my first post!
 
