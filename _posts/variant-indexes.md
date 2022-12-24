@@ -10,7 +10,12 @@ In this post I'll be discussing the paper [Improved Query Performance with Varia
 
 First, a little background information.
 
-Systems such as Postgres and MySQL are optimized to handle online transaction processing (OLTP) workloads. In these workloads there are many read and write queries to the system, and most queries are fine-grained.  This is the workload that an application depends on in order to function properly.  For example, imagine a banking application.  If I want to view my bank account information, the web server will have to retrieve from its DBMS informatiom related to me, which will require it to read specific rows from its tables (this is what I mean by fine-grained).  If I want to make a deposit, the system will have to perform updates to specific rows. This workload requires a system that can efficiently perform fine-grained queries and a relatively high percent of writes.
+Different DBMSs are optimized for different workloads.  For example, some systems are optimized to support the actual operations of a business.  Let's imagine a banking application.  Users have to be able to view their balance and other account information, and also make deposits and withdrawals.  In order to service these requests, the application has to issue reads and writes to specific rows of its tables.  This kind of fine-grained access with many reads and writes to the databse is what OLTP systems are optimized for.  PostgreSQL and MySQL are examples of OLTP systems.
 
-This is in contrast with online analytical processing (OLAP) workloads, which data warehouses are optimized to handle efficiently.  These systems are optimized for an environment where the vast majority of queries are read-only, and updates are done only periodically, in a batch fashion.  In addition, most of these analytical queries usually need to read a huge number of rows, but only a few columns.
+
+This is in contrast with online analytical processing (OLAP) type queries, which are commonly used in Data Warehouses.  An example of an OLAP query is "what is the total dollar sales that were made for particular product brand at all stores on the East coast?" Data Warehouses are usually periodically updated in a batch fashion.
+
+These are two very different environments. In one, the operations of the business (application) depend on efficient fine-grained access to the database. In the other, users depend on efficient aggregations and analytics over a potentially vast quantity of data (and perform almost exclusively read operations).
+
+This paper focuses on the second environment.  It explains how Data Warehouses can exploit their "read-mostly" environment to use different types of indexes to speed up queries.
 
