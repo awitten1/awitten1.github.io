@@ -49,6 +49,63 @@ Now let's take the state example from above.  Assuming we are only storing US re
 
 Another benefit of bitmaps is they allow bitwise operations on sets of rows.  If you have two bitmaps describing two set of rows satisfying different predicates, you can take the AND of these predicates by doing a bitwise operation, likewise for OR and NOT [^1].
 
+These bitwise operations are much faster than looping over two RID lists.
+
+I found the paper's discussion of computing the COUNT of a the Foundset bitmap of a query predicate (Founset is the bitmap representing the set of rows satisfying a query) confusing.  Ultimately, what we want for count is to add up how many 1s are in the bitmap.  We can do this in parallel on different segments of the bitmap and then add up the results.
+
+Now note that a bitmap most likely cannot fit onto a single 4KB disk page (or even a larger 32KB page). Assuming 8,000,000 rows, there are 8,000,000 bits = 1MB in a bitmap.  So this will require 250 4KB pages.  This requires us to partition the bitmap, which correspond to row segments of the database table.
+
+
+The paper now describes projection indexes.  A projection index is a copy of all values of a column stored contiguously on disk.  This is efficient for the case that all column values need to be retrieved for a particular foundset, but the entire rows are not needed.  For example, assuming a 4 byte column field, then 1000 values will fit on a single 4KB page.  If the 4 byte column fields are part of a 200 byte rows, then only 20 rows fit on a 4KB page.  And to read those same 1000 values, at least 50 pages need to be read.
+
+
+The paper now describes bit-sliced indexes.  This is best explained with an example also.  Suppose we have the following table named SALES which has a row for every sale.  And that table has a column dollar_sales for the dollar amount of the sale.  I will also write the integer dollar amount in base 2 (suppose this number represents the number of pennies).
+
+
+
+![](bit-sliced-index.png)
+*A drawing demonstrating a bit-sliced index.*
+
+In this example, we have 4 rows in our table and each has a dollar_sales value.  To form a bit-sliced index, we compute the the bitmaps indicated by the colorful vertical boxes above.  
+
+The i<sup>th</sup> bitmap from the right above is called B<sub>i</sub>.  So B<sub>i</sub>[j] = 1 if bit i of row j is a 1. I am totally convinced the paper has a pretty significant error in this section.  It defines B<sub>i</sub>[j] = 1 if bit 2<sup>i</sup> of row j is a 1, but that can't be right.
+
+To compute the column value of the row with row number i, we can scan the i<sup>th</sup> bit of each of the bitmaps.  (With the definition the paper gives, that would be impossible.)
+
+Bitsliced indexes are good for high cardinality columns.  Supposing 20 bit fields, no matter what the cardinality of the field is, bitsliced indexes use only 20 bitmaps for the index.
+
+We now have established 3 types of indexes: Value-List indexes using RID-lists and bitmaps, Projection Indexes, and Bitsliced Indexes.
+
+## Section 3
+
+This section walks us through a few potential query plans for a query of the form:
+
+`SELECT SUM(dollar_sales) FROM SALES WHERE condition;`
+
+We make the following assumptions:
+* 100 million rows in the table
+* 200 bytes per row => 20 rows per 4KB page
+* Foundset satisfying `condition` has already been computed and is represented by bitmap `B`<sub>`f`</sub>
+
+Query Plan 1: read rows in foundset directly to calculate the aggregation.
+
+We want to compute how many disk pages we need to read in (how many I/Os we need to potentially do).  The calculation goes like this:
+
+
+There are `100 million rows` stored `20 to page` => `100 million / 20 = 5 million` pages in the table.
+
+What is the probability that a particular page stores a row we need? Well, what is the probability that a particular page does not store a row we need?  That is the probability that none of the `2 million` rows is on this page. That is `(1 - 1/5e6)`<sup>`2e6`</sup> = `(1 - (2e6/5e6)/2e6)`<sup>`2e6`</sup> ~ `e`<sup>`-2e6/5e6`</sup> = `e`<sup>`-2/5`</sup>
+
+Which means the probability that a particular page stores a row we need is: 
+
+`(1 - e`<sup>`-2/5`</sup>`)`
+
+What's the expected number of pages we need to read in?  Using linearity of expectation and indicator random variables it is:
+
+`5e6(1 - e`<sup>`-2/5`</sup>`) = 1,648,400 disk pages`
+
+
+
 
 
 [^1] I am neglecting to mention the existence bitmap (EBM) required for computing NOT.
