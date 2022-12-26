@@ -85,7 +85,7 @@ This section walks us through a few potential query plans for a query of the for
 We make the following assumptions:
 * 100 million rows in the table
 * 200 bytes per row => 20 rows per 4KB page
-* Foundset satisfying `condition` has already been computed and is represented by bitmap `B`<sub>`f`</sub>
+* Foundset satisfying `condition` has already been computed and is represented by bitmap `B`<sub>`f`</sub>.  This is an important assumption and depends on existing Value-List indexes (which themselves are indexed with B-trees).
 
 Query Plan 1: read rows in foundset directly to calculate the aggregation.
 
@@ -104,9 +104,57 @@ What's the expected number of pages we need to read in?  Using linearity of expe
 
 `5e6(1 - e`<sup>`-2/5`</sup>`) = 1,648,400 disk pages`
 
+That's a lot of pages!  Assuming a modern AWS gp3 disk (which is an SSD) a reasonable number of IOPS is 3000.  And, AWS assumes 16KB pages.  So, this gives us a total of `(1,648,400 pages / 4)/ 3000 IOPS = 137 seconds` 
+
+(I am assuming a much higher performance disk than what the paper assumes.)
+
+Not terrible, but a little annoying to wait over two minutes for the query to return.
 
 
+Query Plan 2: Use Projection Index.
 
+Assuming the dollar_sales field is 4 bytes
+
+=> 1000 dollar_sales fields per page => `100 million / 1000 = 100,000 pages` for all fields.
+
+Assuming we read all pages, that gives us a response time of: `(100,000 pages / 4) / 3000 IOPS = 20 seconds`.  Much better than plan 1!
+
+
+Query Plan 3:  Use Value-List index on dollar_sales.
+
+Assume `10,000` unique dollar_sales values.
+
+A Value-List index on dollar_sales would look like this:
+
+1 penny: RID-list/bitmap for 1 penny sales
+
+2 pennies: RID-list/bitmap for 2 penny sales
+
+3 pennies: RID-list/bitmap for 3 penny sales
+
+...
+
+10,000 pennies: RID-list/bitmap for 10,000 penny sales
+
+...
+
+2<sup>10</sup> pennies: RID-list/bitmap for 2<sup>10</sup> penny sales
+
+(Note there are gaps in the above list.  The vast majority of sales will be fewer than 10,000 pennies.  We store no list for values for which no sale happened.)
+
+
+We need to read in each RID-list/bitmap!  Assuming they are all RID-lists, we need to read in `100 million rows * 4 bytes/RID = 400 million bytes => 100,000 pages`.  For each RID-list/bitmap, we need to compute the cardinality of its intersection with the foundset.  Then multiply its cardinality with the corresponding value and add it to a total.
+
+This has the same I/O count as query plan 2, but is much more CPU intensive.
+
+
+Query Plan 4: Using a Bit-Sliced index.
+
+In query plan 4, the paper makes an assumption that looks unsafe to me.  It assumes that you only need 21 bitmaps for the bit-sliced index.  The idea is that you don't need to store bitmaps that are all 0.  That makes sense, but it's still not clear to me that for 32 bit fields, we would have 11 empty bitmaps.  I think the assumption is that after 2<sup>20</sup> ~ 1,000,000 pennies = 10,000$ there are no more sales at all. I don't think that is a safe assumption.  If there are no fully 0 bitmaps
+then the I/O cost of this plan would be the same as plan 2.
+
+
+Skipping a little about clustering, the paper now goes on to discuss other column aggregate functions, and which index is the most useful for which.  None are needed for COUNT, since we already have the foundset.  Value-List is best for MAX and MIN.  Value-List is best for percentiles (surprisingly, the bit-sliced index can also be used in a mysterious way for this).
 
 [^1] I am neglecting to mention the existence bitmap (EBM) required for computing NOT.
 
