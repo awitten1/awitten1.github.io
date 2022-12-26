@@ -25,13 +25,25 @@ Ok, now on to the paper.
 
 ## Section 2
 
-Section 2.1 explains that database indexes are typically implemented as B-trees (it also points out that in database documentation, a B-tree usually refers to a B+-tree! I'm very happy that it points this out, because it is something that I've been confused about).  I won't discuss B-trees themselves here (the paper doesn't either) but maybe I will in a future post.
+First, the paper defines "Value-List" indexes.  A Value-List index is a bunch of key-value pairs, where the key is the column being indexed, and the value is a list of Row IDs (RID).  A RID is a reference to a row, note the row itself.  You can think of it like the address of a row.  It specifies where on disk the row is stored.  
 
-Instead, the paper discusses what is stored in the leaf pages.  At the leaf level of the B-tree are key-value pairs, where the key is value of the indexed column and the value is a list of all Row IDs (RID) that have that column value.  A RID is a reference to a row, note the row itself.  You can think of it like the address of a row.  It specifies where on disk the row is stored.  The paper calls these "Value-List" indexes.  Here's an example of a particular key-value pair stored in the leaf of a B-tree (suppose we have a table with an index on state of residence):
+Here's an example of a Value-List index (suppose we have a table with an index on state of residence):
 
-`Maryland: [10, 34, 95, 154, 204]`
+```
+Alabama: [2, 97, 1002]
+Alaska: [4, 8]
+Arizona: [1010, 3001]
+...
+Maryland: [10, 34, 95, 154]
+...
+Wisconsin: [204, 4532]
+Wyoming: [74, 89]
+```
 
 Each number here is a reference to a row that has Maryland as its value in its state column.
+
+The paper also briefly mentions B-trees.  I won't explain B-trees here (maybe I will in a future post).  B-trees are how we efficiently lookup a particular list in a Value-List index.  The key-value pairs are stored in the leaf level pages of a B-tree.  That way instead of scanning the RID-Lists one by one, we can traverse a tree to find the correct RID-list.
+
 
 The paper now suggests an alternate way of expressing these RID-lists called Bitmaps.  First, the paper discusses row numbers.  A row number is an integer in the range `[1,M]` where given a row number, we can efficiently fetch the disk page on which the row is stored. `M` here is the max row number, and there can be no more than `M` rows in the table. I am a little unclear from the paper why a row number can't be used as a RID (maybe it can be?).  In the below discussion, I will use row number and RID synonymously.  Let's also assume that `M` is actually the number of rows stored (not the case when rows can have variable size).
 
@@ -43,7 +55,7 @@ In this example, rows with row numbers 2, 5 and 10 have Maryland for their state
 
 Here's the tradeoff: when a column can take only a few distinct values (let's call the number of distinct values the "cardinality") bitmaps are much more storage efficient.
 
-Here's why: let's assume we have a column indicating whether an individual is married. Every individual is either a married or not.  Therefore, we need two bitmaps to store this information.  This gives us `2M` bits that we need to store in total.  Assuming 32 bits in a row number (RID), a RID list index would require `32M` bits for the same index.  A RID-list index on any column requires `32M` bits because there are `M` rows and a RID requires 32 bits, and each RID appears once.  So the storage savings is huge.
+To understand why, let's imagine column for marital status. Every individual is either a married or not.  Therefore, we need two bitmaps to store this information.  This gives us `2M` bits that we need to store in total.  Assuming 32 bits in a row number (RID), a RID list index would require `32M` bits for the same index.  A RID-list index on any column requires `32M` bits because there are `M` rows and a RID requires 32 bits, and each RID appears once.  So the storage savings is huge.
 
 Now let's take the state example from above.  Assuming we are only storing US residents, every individual lives in exactly one state.  And there are 50 states, we need to store 50 different bitmaps (one for each state).  In this case the uncompressed size of a bitmap index is slightly worse than RID-lists (`32M` bits vs `50M`). The "density" of a bitmap is `1/50` because on average, for a particular bitmap, `1/50` of the bits are set to 1.  However, since the density of this bitmap is low, the bitmaps will be very compressable (there will be many "runs" of 0s and 1s).  So bitmaps still may be smaller.  (I think they would be because most states are pretty rural, and the bitmaps associated with these states would be very compressable.)
 
@@ -54,6 +66,8 @@ These bitwise operations are much faster than looping over two RID lists.
 I found the paper's discussion of computing the COUNT of a the Foundset bitmap of a query predicate (Founset is the bitmap representing the set of rows satisfying a query) confusing.  Ultimately, what we want for count is to add up how many 1s are in the bitmap.  We can do this in parallel on different segments of the bitmap and then add up the results.
 
 Now note that a bitmap most likely cannot fit onto a single 4KB disk page (or even a larger 32KB page). Assuming 8,000,000 rows, there are 8,000,000 bits = 1MB in a bitmap.  So this will require 250 4KB pages.  This requires us to partition the bitmap, which correspond to row segments of the database table.
+
+Now, Value-Lists can have a combination of RID-lists and bitmaps.  For dense enough keys, we can use a bitmap and otherwise use a RID-list.  We can even make it so that some fragments use a bitmap and others use a RID-list (within a single key-value pair).
 
 
 The paper now describes projection indexes.  A projection index is a copy of all values of a column stored contiguously on disk.  This is efficient for the case that all column values need to be retrieved for a particular foundset, but the entire rows are not needed.  For example, assuming a 4 byte column field, then 1000 values will fit on a single 4KB page.  If the 4 byte column fields are part of a 200 byte rows, then only 20 rows fit on a 4KB page.  And to read those same 1000 values, at least 50 pages need to be read.
