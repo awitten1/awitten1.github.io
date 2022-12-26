@@ -183,7 +183,10 @@ Using a Bit-Sliced index: Interestingly, this can be done efficiently.  It's pre
 
 # Section 5
 
-First, some more background information.  A common schema in OLAP databases
+First, some more background information.  A common schema in OLAP databases is the star schema.
+
+![](star-schema.png)
+*A star schema example.*
 
 
 
