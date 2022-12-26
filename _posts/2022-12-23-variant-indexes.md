@@ -19,13 +19,13 @@ This is in contrast with online analytical processing (OLAP) type queries, which
 
 These are two very different environments. In one, the operations of the business (application) depend on efficient fine-grained access to the database. In the other, users depend on efficient aggregations and analytics than scan a potentially vast quantity of data (and perform almost exclusively read operations).
 
-This paper focuses on the second environment.  It explains how Data Warehouses can exploit their "read-mostly" environment to use different types of indexes to speed up queries.
+This paper focuses on the second environment.  It explains how Data Warehouses can exploit their "read-mostly" environment to use different types of indexes to speed up queries.  These techniques don't help much in the OLTP case, because these indexes need to be synchronously maintained on every insert, which results in a huge write amplification.  Furthermore, they don't benefit point queries that much (except for the Value-List index, which is really a normal index).
 
 Ok, now on to the paper.
 
-## Section 2
+# Section 2
 
-First, the paper defines "Value-List" indexes.  A Value-List index is a bunch of key-value pairs, where the key is the column being indexed, and the value is a list of Row IDs (RID).  A RID is a reference to a row, note the row itself.  You can think of it like the address of a row.  It specifies where on disk the row is stored.  
+First, the paper defines "Value-List" indexes.  A Value-List index is a bunch of key-value pairs, where the key is the column being indexed, and the value is a list of Row IDs (RID) where the corresponding Row has that value.  A RID is a reference to a row, note the row itself.  You can think of it like the address of a row.  It specifies where on disk the row is stored.  
 
 Here's an example of a Value-List index (suppose we have a table with an index on state of residence):
 
@@ -90,7 +90,7 @@ Bitsliced indexes are good for high cardinality columns.  Supposing 20 bit field
 
 We now have established 3 types of indexes: Value-List indexes using RID-lists and bitmaps, Projection Indexes, and Bitsliced Indexes.
 
-## Section 3
+# Section 3
 
 This section walks us through a few potential query plans for a query of the form:
 
@@ -101,7 +101,9 @@ We make the following assumptions:
 * 200 bytes per row => 20 rows per 4KB page
 * Foundset satisfying `condition` has already been computed and is represented by bitmap `B`<sub>`f`</sub>.  This is an important assumption and depends on existing Value-List indexes (which themselves are indexed with B-trees).
 
-Query Plan 1: read rows in foundset directly to calculate the aggregation.
+Note: I won't be discussing the CPU contributions to cost here.
+
+## Query Plan 1: read rows in foundset directly to calculate the aggregation.
 
 We want to compute how many disk pages we need to read in (how many I/Os we need to potentially do).  The calculation goes like this:
 
@@ -125,7 +127,7 @@ That's a lot of pages!  Assuming a modern AWS gp3 disk (which is an SSD) a reaso
 Not terrible, but a little annoying to wait over two minutes for the query to return.
 
 
-Query Plan 2: Use Projection Index.
+## Query Plan 2: Use Projection Index.
 
 Assuming the dollar_sales field is 4 bytes
 
@@ -134,41 +136,56 @@ Assuming the dollar_sales field is 4 bytes
 Assuming we read all pages, that gives us a response time of: `(100,000 pages / 4) / 3000 IOPS = 20 seconds`.  Much better than plan 1!
 
 
-Query Plan 3:  Use Value-List index on dollar_sales.
+## Query Plan 3:  Use Value-List index on dollar_sales.
 
 Assume `10,000` unique dollar_sales values.
-
-A Value-List index on dollar_sales would look like this:
-
-1 penny: RID-list/bitmap for 1 penny sales
-
-2 pennies: RID-list/bitmap for 2 penny sales
-
-3 pennies: RID-list/bitmap for 3 penny sales
-
-...
-
-10,000 pennies: RID-list/bitmap for 10,000 penny sales
-
-...
-
-2<sup>10</sup> pennies: RID-list/bitmap for 2<sup>10</sup> penny sales
-
-(Note there are gaps in the above list.  The vast majority of sales will be fewer than 10,000 pennies.  We store no list for values for which no sale happened.)
-
 
 We need to read in each RID-list/bitmap!  Assuming they are all RID-lists, we need to read in `100 million rows * 4 bytes/RID = 400 million bytes => 100,000 pages`.  For each RID-list/bitmap, we need to compute the cardinality of its intersection with the foundset.  Then multiply its cardinality with the corresponding value and add it to a total.
 
 This has the same I/O count as query plan 2, but is much more CPU intensive.
 
-
-Query Plan 4: Using a Bit-Sliced index.
-
-In query plan 4, the paper makes an assumption that looks unsafe to me.  It assumes that you only need 21 bitmaps for the bit-sliced index.  The idea is that you don't need to store bitmaps that are all 0.  That makes sense, but it's still not clear to me that for 32 bit fields, we would have 11 empty bitmaps.  I think the assumption is that after 2<sup>20</sup> ~ 1,000,000 pennies = 10,000$ there are no more sales at all. I don't think that is a safe assumption.  If there are no fully 0 bitmaps
-then the I/O cost of this plan would be the same as plan 2.
+One tradoff to note: this will have a smaller I/O cost than plans 2 or 4 if the column field is large.  In this paper the assumption is the field is 4 bytes and a RID is also 4 bytes, so it just so happens that they are the same.
 
 
-Skipping a little about clustering, the paper now goes on to discuss other column aggregate functions, and which index is the most useful for which.  None are needed for COUNT, since we already have the foundset.  Value-List is best for MAX and MIN.  Value-List is best for percentiles (surprisingly, the bit-sliced index can also be used in a mysterious way for this).
+## Query Plan 4: Using a Bit-Sliced index.
+
+In query plan 4, the paper makes an assumption that looks unsafe to me.  It assumes that you only need 21 bitmaps for the bit-sliced index.  The idea is that you don't need to store bitmaps that are all 0.  That makes sense, but it's still not clear to me that for 32 bit fields, we would have 11 empty bitmaps.  I think the assumption is that after 2<sup>20</sup> ~ 1,000,000 pennies = $10,000 there are no more sales at all. I don't think that is a safe assumption.
+
+What is true, however, is that the compression ratio for the higher order bitmaps will be insane.  They will compress to almost nothing, because the assumption is that the vast majority of sales are <= $100, and therefore the higher order bitmaps will be almost entirely 0s.
+
+Therefore it's a little hard to estimate the I/O cost for this plan.  Not considering compression, it's the same as plan 2.  But give, the compression, I think there would be significant disk savings. (And now, that I think about it, the higher order bitmaps could use a RID-list.)
+
+Maybe down to ~75,000 bytes? I'm not exactly sure.
+
+## Clustering
+
+The projection index and the bit-sliced index benefit from clustering.  If the foundset is clustered on a fraction f of the disk, then with those indexes you only need to do that ratio of the above I/O.
+
+## Other aggregation functions
+
+The paper now goes on to discuss other column aggregate functions, and which index is the most useful for which.  None are needed for COUNT, since we already have the foundset.  Value-List is best for MAX and MIN.  Value-List is best for percentiles (surprisingly, the bit-sliced index can also be used in a mysterious way for this).
+
+# Section 4: Evaluting Range queries
+
+```
+SELECT column-list FROM T WHERE C-range AND <condition>
+```
+
+where C-range is a range predicate: `{C > c1, C >= c1, C = c1, C < c2, C <= c2, C between c1 and c2}`
+
+And the condition is already in a foundset B<sub>f</sub>.
+
+Using a projection index: for each row in B<sub>f</sub> look in projection index and test the range.
+
+Using a Value-List index:  for each value in range in the Value-List index, compute the union of the lets (using bitwise OR).  Then AND that with B<sub>f</sub>.
+
+Using a Bit-Sliced index: Interestingly, this can be done efficiently.  It's pretty confusing.  I think it deserves a short blog post on its own.
+
+# Section 5
+
+First, some more background information.  A common schema in OLAP databases
+
+
 
 [^1] I am neglecting to mention the existence bitmap (EBM) required for computing NOT.
 
