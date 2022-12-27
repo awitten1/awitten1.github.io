@@ -188,6 +188,41 @@ First, some more background information.  A common schema in OLAP databases is t
 ![](star-schema.png)
 *A star schema example.*
 
+The SALES table is the so-called "fact table."  A fact table represents a set of observations, in this case sales.  The referenced tables (by a foreign key) are "dimension tables."
+
+An example OLAP query is 
+
+```
+SELECT P.brand, T.week, C.city, SUM(S.dollar_sales)
+
+ FROM SALES S, PRODUCT P, CUSTOMER C, TIME T
+
+ WHERE S.day = T.day and S.cid = C.cid
+and S.pid = P.pid and P.brand = :brandvar
+and T.week >= :datevar and C.state in
+('Maine', 'New Hampshire', 'Vermont',
+ 'Massachusetts', 'Connecticut', 'Rhode Island')
+ GROUP BY P.brand, T.week, C.city;
+
+
+```
+
+A query such as the above one can be precomputed in a summary table for all possible values of T.day, C.cid, P.pid.  That is called the "OLAP cube" or "Datacube."
+
+This incurs a large price on updates.  Furthermore, the size of the summary table grows with the product of the number of values in the dimension tables, which makes it hard to precompute everything.  Also, some fields may be non-dimensional, like temperature, and that negates the benefit of the summary table (these numeric fields drawn from a continuous space should almost never have dimension tables).
+
+In short, you can't precompute everything, and we still need strategies for efficiently computing these types of queries.
+
+
+## Join Indexes
+```
+"A Join Index is an index on one table for a quantity that involves a column value of a different table through a commonly encountered join."
+```
+
+These are regular indexes, except that they are on a "virtual column" that is brought in through a join.  For example, in the SALES table above we can have an index on brand, even though that column is in a dimensional table.
+
+This index can be a Projection, Value-List, or Bit-Sliced index.  Having enough join indexes, may remove the need for an explicit join altogether.
+
 
 
 [^1] I am neglecting to mention the existence bitmap (EBM) required for computing NOT.
