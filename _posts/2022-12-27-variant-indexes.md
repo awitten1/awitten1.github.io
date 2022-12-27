@@ -77,7 +77,7 @@ The paper now describes bit-sliced indexes.  This is best explained with an exam
 
 
 
-![](/_posts/bit-sliced-index.png)
+![](_posts/bit-sliced-index.png)
 *A drawing demonstrating a bit-sliced index.*
 
 In this example, we have 4 rows in our table and each has a dollar_sales value.  To form a bit-sliced index, we compute the the bitmaps indicated by the colorful vertical boxes above.  
@@ -185,7 +185,7 @@ Using a Bit-Sliced index: Interestingly, this can be done efficiently.  It's pre
 
 First, some more background information.  A common schema in OLAP databases is the star schema.
 
-![](/_posts/star-schema.png)
+![](_posts/star-schema.png)
 *A star schema example.*
 
 The SALES table is the so-called "fact table."  A fact table represents a set of observations, in this case sales.  The referenced tables (by a foreign key) are "dimension tables."
