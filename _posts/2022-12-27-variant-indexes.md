@@ -223,6 +223,15 @@ These are regular indexes, except that they are on a "virtual column" that is br
 
 This index can be a Projection, Value-List, or Bit-Sliced index.  Having enough join indexes, may remove the need for an explicit join altogether.
 
+## Groupset Aggregates
+
+In a query like the above one, once we have a foundset satisfying the WHERE clause, we must then partition the set into groups (groupsets) and compute the aggregation for each groupset.
+
+Using projection indexes: for each row of the foundset, read from each projection index (one for each group by dimension), accumulating in an array cell corresponding to that groupset.
+
+Using Value-List indexes: 
+
+For all combinations of values of columns we are grouping on, compute the intersection of the bitmaps.  Intersect that with the foundset.  Compute the agg of that intersection.
 
 
 [^1] I am neglecting to mention the existence bitmap (EBM) required for computing NOT.
