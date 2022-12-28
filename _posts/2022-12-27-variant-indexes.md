@@ -118,7 +118,7 @@ Which means the probability that a particular page stores a row we need is:
 
 What's the expected number of pages we need to read in?  Using linearity of expectation and indicator random variables it is:
 
-`5e6(1 - e`<sup>`-2/5`</sup>`) = 1,648,400 disk pages`
+```5e6(1 - e<sup>-2/5</sup>) = 1,648,400 disk pages```
 
 That's a lot of pages!  Assuming a modern AWS gp3 disk (which is an SSD) a reasonable number of IOPS is 3000.  And, AWS assumes 16KB pages.  So, this gives us a total of `(1,648,400 pages / 4)/ 3000 IOPS = 137 seconds` 
 
@@ -185,7 +185,7 @@ Using a Bit-Sliced index: Interestingly, this can be done efficiently.  It's pre
 
 First, some more background information.  A common schema in OLAP databases is the star schema.
 
-![](images/star-schema.png)
+![](https://raw.githubusercontent.com/awitten1/awitten1.github.io/master/images/star-schema.png)
 *A star schema example.*
 
 The SALES table is the so-called "fact table."  A fact table represents a set of observations, in this case sales.  The referenced tables (by a foreign key) are "dimension tables."
