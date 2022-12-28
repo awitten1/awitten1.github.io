@@ -77,7 +77,7 @@ The paper now describes bit-sliced indexes.  This is best explained with an exam
 
 
 
-![](images/bit-sliced-index.png)
+![](https://raw.githubusercontent.com/awitten1/awitten1.github.io/master/images/bit-sliced-index.png)
 *A drawing demonstrating a bit-sliced index.*
 
 In this example, we have 4 rows in our table and each has a dollar_sales value.  To form a bit-sliced index, we compute the the bitmaps indicated by the colorful vertical boxes above.  
