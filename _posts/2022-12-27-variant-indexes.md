@@ -75,10 +75,7 @@ The paper now describes projection indexes.  A projection index is a copy of all
 
 The paper now describes bit-sliced indexes.  This is best explained with an example also.  Suppose we have the following table named SALES which has a row for every sale.  And that table has a column dollar_sales for the dollar amount of the sale.  I will also write the integer dollar amount in base 2 (suppose this number represents the number of pennies).
 
-
-
-![](https://raw.githubusercontent.com/awitten1/awitten1.github.io/master/images/bit-sliced-index.png)
-*A drawing demonstrating a bit-sliced index.*
+<img src="https://raw.githubusercontent.com/awitten1/awitten1.github.io/master/images/bit-sliced-index.png" alt="drawing" width="200"/>
 
 In this example, we have 4 rows in our table and each has a dollar_sales value.  To form a bit-sliced index, we compute the the bitmaps indicated by the colorful vertical boxes above.  
 
@@ -185,8 +182,7 @@ Using a Bit-Sliced index: Interestingly, this can be done efficiently.  It's pre
 
 First, some more background information.  A common schema in OLAP databases is the star schema.
 
-![](https://raw.githubusercontent.com/awitten1/awitten1.github.io/master/images/star-schema.png)
-*A star schema example.*
+<img src="https://raw.githubusercontent.com/awitten1/awitten1.github.io/master/images/star-schema.png" alt="drawing" width="200"/>
 
 The SALES table is the so-called "fact table."  A fact table represents a set of observations, in this case sales.  The referenced tables (by a foreign key) are "dimension tables."
 
