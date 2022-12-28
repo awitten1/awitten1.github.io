@@ -122,7 +122,7 @@ $$(1 - e^{-2/5})$$
 
 What's the expected number of pages we need to read in?  Using linearity of expectation and indicator random variables it is:
 
-$$5e6(1 - e^{-2/5}) = 1,648,400$$ disk pages
+$$5,000,000(1 - e^{-2/5}) = 1,648,400$$ disk pages
 
 That's a lot of pages!  Assuming a modern AWS gp3 disk (which is an SSD) a reasonable number of IOPS is 3000.  And, AWS assumes 16KB pages.  So, this gives us a total of `(1,648,400 pages / 4)/ 3000 IOPS = 137 seconds` 
 
