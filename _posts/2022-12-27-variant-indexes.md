@@ -21,11 +21,13 @@ These are two very different environments. In one, the operations of the busines
 
 This paper focuses on the second environment.  It explains how Data Warehouses can exploit their "read-mostly" environment to use different types of indexes to speed up queries.  These techniques don't help much in the OLTP case, because these indexes need to be synchronously maintained on every insert, which results in a huge write amplification.  Furthermore, they don't benefit point queries that much (except for the Value-List index, which is really a normal index).
 
+There's one last thing I want to mention.  When evaluating the cost of an algorithm, we will count how many disk pages the algorithm reads into memory.  These algorithms attempt to minimize the number of I/Os that are required to service a SUM request of a column.  What these algorithms want to avoid is spending an I/O, only to get a few column values from it.  If we're going to spend an I/O, we want that page to be chock full of relevant data.
+
 Ok, now on to the paper.
 
 # Section 2
 
-First, the paper defines "Value-List" indexes.  A Value-List index is a bunch of key-value pairs, where the key is the column being indexed, and the value is a list of Row IDs (RID) where the corresponding Row has that value.  A RID is a reference to a row, note the row itself.  You can think of it like the address of a row.  It specifies where on disk the row is stored.  
+First, the paper defines "Value-List" indexes.  A Value-List index is a bunch of key-value pairs, where the key is the column being indexed, and the value is a list of Row IDs (RID) where the corresponding Row has that value.  A RID is a reference to a row, not the row itself.  You can think of it like the address of a row.  It specifies where on disk the row is stored.  
 
 Here's an example of a Value-List index (suppose we have a table with an index on state of residence):
 
@@ -40,7 +42,7 @@ Wisconsin: [204, 4532]
 Wyoming: [74, 89]
 ```
 
-Each number here is a reference to a row that has Maryland as its value in its state column.
+Each number here is a reference to a row in the table.
 
 The paper also briefly mentions B-trees.  I won't explain B-trees here (maybe I will in a future post).  B-trees are how we efficiently lookup a particular list in a Value-List index.  The key-value pairs are stored in the leaf level pages of a B-tree.  That way instead of scanning the RID-Lists one by one, we can traverse a tree to find the correct RID-list.
 
@@ -53,7 +55,7 @@ I think bitmaps are best explained with an example so here's one:
 
 In this example, rows with row numbers 2, 5 and 10 have Maryland for their state value.  The idea is that we store a single bit for every row in the table, and set the bit to 1 for each row number where the row satisfies the condition, and 0 for other rows.
 
-Here's the tradeoff: when a column can take only a few distinct values (let's call the number of distinct values the "cardinality") bitmaps are much more storage efficient.
+Here's the tradeoff: when a column can take only a few distinct values (let's call the number of distinct values the "cardinality") bitmaps are much more storage efficient. Being storage efficient is good, because it means we need to spend fewer I/Os to read the index into memory.
 
 To understand why, let's imagine column for marital status. Every individual is either a married or not.  Therefore, we need two bitmaps to store this information.  This gives us `2M` bits that we need to store in total.  Assuming 32 bits in a row number (RID), a RID list index would require `32M` bits for the same index.  A RID-list index on any column requires `32M` bits because there are `M` rows and a RID requires 32 bits, and each RID appears once.  So the storage savings is huge.
 
@@ -75,11 +77,11 @@ The paper now describes projection indexes.  A projection index is a copy of all
 
 The paper now describes bit-sliced indexes.  This is best explained with an example also.  Suppose we have the following table named SALES which has a row for every sale.  And that table has a column dollar_sales for the dollar amount of the sale.  I will also write the integer dollar amount in base 2 (suppose this number represents the number of pennies).
 
-<img src="https://raw.githubusercontent.com/awitten1/awitten1.github.io/master/images/bit-sliced-index.png" alt="drawing" width="200"/>
+<img src="https://raw.githubusercontent.com/awitten1/awitten1.github.io/master/images/bit-sliced-index.png" alt="drawing" width="300"/>
 
 In this example, we have 4 rows in our table and each has a dollar_sales value.  To form a bit-sliced index, we compute the the bitmaps indicated by the colorful vertical boxes above.  
 
-The i<sup>th</sup> bitmap from the right above is called B<sub>i</sub>.  So B<sub>i</sub>[j] = 1 if bit i of row j is a 1. I am totally convinced the paper has a pretty significant error in this section.  It defines B<sub>i</sub>[j] = 1 if bit 2<sup>i</sup> of row j is a 1, but that can't be right.
+The i<sup>th</sup> bitmap from the right above is called B<sub>i</sub>.  So B<sub>i</sub>[j] = 1 if bit i of row j is a 1. I am convinced the paper has a pretty significant error in this section.  It defines B<sub>i</sub>[j] = 1 if bit 2<sup>i</sup> of row j is a 1, but that can't be right.
 
 To compute the column value of the row with row number i, we can scan the i<sup>th</sup> bit of each of the bitmaps.  (With the definition the paper gives, that would be impossible.)
 
@@ -105,9 +107,13 @@ Note: I won't be discussing the CPU contributions to cost here.
 We want to compute how many disk pages we need to read in (how many I/Os we need to potentially do).  The calculation goes like this:
 
 
-There are `100 million rows` stored `20 to page` => `100 million / 20 = 5 million` pages in the table.
+```
+100 million rows
+20 rows in a page 
+=> 100 million / 20 = 5 million pages in the table.
+ ```
 
-What is the probability that a particular page stores a row we need? Well, what is the probability that a particular page does not store a row we need?  That is the probability that none of the `2 million` rows is on this page. That is `(1 - 1/5e6)`<sup>`2e6`</sup> = `(1 - (2e6/5e6)/2e6)`<sup>`2e6`</sup> ~ `e`<sup>`-2e6/5e6`</sup> = `e`<sup>`-2/5`</sup>
+What is the probability that a particular page stores a row we need? Well, what is the probability that a particular page does not store a row we need?  That is the probability that none of the `2 million` rows in a foundset is on this page. That is `(1 - 1/5e6)`<sup>`2e6`</sup> = `(1 - (2e6/5e6)/2e6)`<sup>`2e6`</sup> ~ `e`<sup>`-2e6/5e6`</sup> = `e`<sup>`-2/5`</sup>
 
 Which means the probability that a particular page stores a row we need is: 
 
@@ -182,7 +188,7 @@ Using a Bit-Sliced index: Interestingly, this can be done efficiently.  It's pre
 
 First, some more background information.  A common schema in OLAP databases is the star schema.
 
-<img src="https://raw.githubusercontent.com/awitten1/awitten1.github.io/master/images/star-schema.png" alt="drawing" width="200"/>
+<img src="https://raw.githubusercontent.com/awitten1/awitten1.github.io/master/images/star-schema.png" alt="drawing" width="300"/>
 
 The SALES table is the so-called "fact table."  A fact table represents a set of observations, in this case sales.  The referenced tables (by a foreign key) are "dimension tables."
 
@@ -197,8 +203,6 @@ and T.week >= :datevar and C.state in
 ('Maine', 'New Hampshire', 'Vermont',
  'Massachusetts', 'Connecticut', 'Rhode Island')
  GROUP BY P.brand, T.week, C.city;
-
-
 ```
 
 A query such as the above one can be precomputed in a summary table for all possible values of T.day, C.cid, P.pid.  That is called the "OLAP cube" or "Datacube."
