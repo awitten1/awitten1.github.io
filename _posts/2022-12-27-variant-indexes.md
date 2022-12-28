@@ -3,6 +3,7 @@ layout: post
 title:  "Variant Indexes in Data Warehouses"
 date:   2022-12-23 09:09:55 -0500
 categories: dbms indexes
+usemathjax: true
 ---
 This is my first post!
 
@@ -113,15 +114,15 @@ We want to compute how many disk pages we need to read in (how many I/Os we need
 => 100 million / 20 = 5 million pages in the table.
  ```
 
-What is the probability that a particular page stores a row we need? Well, what is the probability that a particular page does not store a row we need?  That is the probability that none of the `2 million` rows in a foundset is on this page. That is `(1 - 1/5e6)`<sup>`2e6`</sup> = `(1 - (2e6/5e6)/2e6)`<sup>`2e6`</sup> ~ `e`<sup>`-2e6/5e6`</sup> = `e`<sup>`-2/5`</sup>
+What is the probability that a particular page stores a row we need? Well, what is the probability that a particular page does not store a row we need?  That is the probability that none of the `2 million` rows in a foundset is on this page. That is $$(1 - 1/5,000,000)^{2,000,000} = (1 - \frac{(2,000,000/5,000,000)}{2,000,000})^{2,000,000} \approx e^{-2/5}$$
 
 Which means the probability that a particular page stores a row we need is: 
 
-`(1 - e`<sup>`-2/5`</sup>`)`
+$$(1 - e^{-2/5})$$
 
 What's the expected number of pages we need to read in?  Using linearity of expectation and indicator random variables it is:
 
-```5e6(1 - e<sup>-2/5</sup>) = 1,648,400 disk pages```
+$$5e6(1 - e^{-2/5}) = 1,648,400$$ disk pages
 
 That's a lot of pages!  Assuming a modern AWS gp3 disk (which is an SSD) a reasonable number of IOPS is 3000.  And, AWS assumes 16KB pages.  So, this gives us a total of `(1,648,400 pages / 4)/ 3000 IOPS = 137 seconds` 
 
