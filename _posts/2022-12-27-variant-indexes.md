@@ -1,7 +1,7 @@
 ---
 layout: post
 title:  "Variant Indexes in Data Warehouses"
-date:   2022-12-23 09:09:55 -0500
+date:   2022-12-28 09:09:55 -0500
 categories: dbms indexes
 usemathjax: true
 ---
