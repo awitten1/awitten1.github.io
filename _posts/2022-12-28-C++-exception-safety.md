@@ -1,7 +1,7 @@
 ---
 layout: post
 title:  "C++ Container Exception Safety"
-date:   2022-12-28 09:09:55 -0500
+date:   2023-01-01 09:09:55 -0500
 categories: C++
 usemathjax: true
 ---
@@ -10,9 +10,9 @@ I was recently reading Tom Cargill's famous blog [post](https://ptgmedia.pearson
 
 The problem that the post lays out is that it is impossible to implement a fully generic stack that has an exception-safe pop function that both mutates the stack and returns a value.
 
-One might ask "What is meant by exception safe?"  If its member functions throw an exception, the state of the stack should be unchanged.
+One might ask "What is meant by exception safe?"  One possible answer is "If its member functions throw an exception, the state of the stack should be unchanged."
 
-The blog considers the following stack declaration:
+Cargill's post considers the following stack declaration:
 
 ```
   template <class T>
@@ -49,9 +49,7 @@ The implementation of pop is:
 Where `top` is an integer pointing to the last occupied index of the buffer.
 
 
-When the function returns, it has to call the copy constructor of `T` in order to construct a T in the stack frame of the caller.  If the copy constructor throws an exception, that will violate the exception safety guarantee that the stack remain unchanged if it throws, because `top` has been decremented.  The issue is that the copy constructor of `T` is called *after* we mutate the stack (decrementing `top`).
-
-It's essential that if we throw an exception, we do not mutate the stack.
+When the function returns, it has to call the copy constructor of `T` in order to construct a `T` in the stack frame of the caller.  If the copy constructor throws an exception, that will violate the exception safety guarantee of the stack. That is because the copy constructor of `T` is called *after* we mutate the stack (decrementing `top`).  And so, we have mutated the stack, but `pop` has thrown exception.  That is what we want to avoid.
 
 In modern C++, I would probably write `pop` as:
 
@@ -65,7 +63,7 @@ In modern C++, I would probably write `pop` as:
   }
 ```
 
-This is still a problem, because the move constructor could throw an exception!  One option to fix it is to assert that the move constructor will not throw an exception:
+This poses the same problem, because the move constructor could also throw an exception.  One option to fix it is to assert that the move constructor will not throw an exception:
 
 ```
   template <class T>
@@ -80,7 +78,7 @@ This is still a problem, because the move constructor could throw an exception! 
 
 Then this `Stack` can only use types with `noexcept` move constructors.  This isn't an option for a `Stack` that wants to be fully generic (the STL containers).  The way the STL handles this is to make functions like `vector<T>::pop_back` be `void`.  If you want to access the back of the `vector` you need to use `vector<T>::back`.
 
-One additional comment I want to make is that it doesn't look like any of this is a problem if copy elision were guaranteed in this case.  In particular, if Named Return Value Optimization (NRVO) were guaranteed, we are able to write into the callers stack frame *before* we mutate the stack.  For example,
+One additional comment I want to make is that it appears to me that if Named Return Value Optimization (NRVO) were guaranteed, we would be able to write into the callers stack frame *before* we mutate the stack.  For example,
 
 
 ```
@@ -89,7 +87,7 @@ One additional comment I want to make is that it doesn't look like any of this i
   {
     if( top < 0 )
       throw "pop on empty stack";
-    T copy = v[top];
+    T copy = v[top];   // Copy constructor called.  Writes into caller stack frame.
     --top;
     return copy;       // Copy constructor not called if copy elision occurs!
   }
