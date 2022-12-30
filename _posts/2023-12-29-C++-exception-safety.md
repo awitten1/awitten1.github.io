@@ -1,7 +1,7 @@
 ---
 layout: post
 title:  "C++ Container Exception Safety"
-date:   2023-01-01 09:09:55 -0500
+date:   2022-12-29 09:09:55 -0500
 categories: C++
 usemathjax: true
 ---
