@@ -1,6 +1,6 @@
 ---
 layout: post
-title:  "C++ STL Exception Safety Thoughts"
+title:  "C++ Container Exception Safety"
 date:   2022-12-28 09:09:55 -0500
 categories: C++
 usemathjax: true
