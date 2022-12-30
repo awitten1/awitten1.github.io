@@ -8,7 +8,9 @@ usemathjax: true
 
 I was recently reading Tom Cargill's famous blog [post](https://ptgmedia.pearsoncmg.com/imprint_downloads/informit/aw/meyerscddemo/demo/MAGAZINE/CA_FRAME.HTM) about exception safety in C++.
 
-The post discusses the following stack declaration is:
+The problem that the post lays out is that it is impossible to implement a fully generic stack that has an exception-safe pop function that both mutates the stack and returns a value.
+
+The blog considers the following stack declaration:
 
 ```
   template <class T>
@@ -30,9 +32,9 @@ The post discusses the following stack declaration is:
   };
 ```
 
-The problem that it lays out is that it is impossible to implement a fully generic stack that has an exception-safe pop function that returns a value.  What is meant by "exception safe?"  If its functions throw an exception, the state of the stack should be unchanged.
+ What is meant by "exception safe?"  If its member functions throw an exception, the state of the stack should be unchanged.
 
-And the implementation of pop is:
+The implementation of pop is:
 
 ```
   template <class T>
@@ -46,7 +48,8 @@ And the implementation of pop is:
 
 Where `top` is an integer pointing to the last occupied index of the buffer.
 
-The basic problem is that, when writing into the return slot of the function, the copy constructor of `T` could throw an exception.  The problem here, is that we've already mutated `top`!  That's a big problem, because if the `pop` fails, then the stack should remain unchanged.  It's essential that if we throw an exception, we do not mutate the stack.
+
+When the function returns, it has to call the copy constructor of `T` in order to write into the return slot of the function (in the caller's stack frame).  If the copy constructor throws an exception, that will violate the exception safety guarantees that the stack remain unchanged, because `top` has been decremented.  It's essential that if we throw an exception, we do not mutate the stack.
 
 In modern C++, I would probably write `pop` as:
 
@@ -61,7 +64,6 @@ In modern C++, I would probably write `pop` as:
 ```
 
 This is still a problem, because the move constructor could throw an exception!  One option to fix it is to assert that the move constructor will not throw an exception:
-
 
 ```
   template <class T>
@@ -91,4 +93,6 @@ One additional comment I want to make is that it doesn't look like any of this i
   }
 ```
 
-In the above code we make a copy, then we decrement `top`.  If copy elision occurs, then on the `return` line, we don't call the copy constructor!  Instead, it's when we create the copy that we write into the return slot.  The problem is that the standard doesn't guarantee copy elision in this case.
+In the above code we make a copy, then we decrement `top`.  If copy elision occurs, then on the `return` line, we don't call the copy constructor!  Instead, it's when we create the copy that we write into the return slot.  The issue is that the C++ standard doesn't guarantee copy elision in this case.
+
+I think that if it were guaranteed, we could have member functions that both mutate the container and return a value.
