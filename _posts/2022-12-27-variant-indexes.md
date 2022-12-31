@@ -28,7 +28,7 @@ Ok, now on to the paper.
 
 # Section 2
 
-First, the paper defines "Value-List" indexes.  A Value-List index is a bunch of key-value pairs, where the key is the column being indexed, and the value is a list of Row IDs (RID) where the corresponding Row has that value.  A RID is a reference to a row, not the row itself.  You can think of it like the address of a row.  It specifies where on disk the row is stored.  
+First, the paper defines "Value-List" indexes.  A Value-List index is a bunch of key-value pairs, where the key is the column being indexed, and the value is a list of Row IDs (RID) where the corresponding Row has that value.  A RID is a reference to a row, not the row itself.  You can think of it like the address of a row.  It specifies where on disk the row is stored.
 
 Here's an example of a Value-List index (suppose we have a table with an index on state of residence):
 
@@ -60,7 +60,7 @@ Here's the tradeoff: when a column can take only a few distinct values (let's ca
 
 To understand why, let's imagine column for marital status. Every individual is either a married or not.  Therefore, we need two bitmaps to store this information.  This gives us `2M` bits that we need to store in total.  Assuming 32 bits in a row number (RID), a RID list index would require `32M` bits for the same index.  A RID-list index on any column requires `32M` bits because there are `M` rows and a RID requires 32 bits, and each RID appears once.  So the storage savings is huge.
 
-Now let's take the state example from above.  Assuming we are only storing US residents, every individual lives in exactly one state.  And there are 50 states, we need to store 50 different bitmaps (one for each state).  In this case the uncompressed size of a bitmap index is slightly worse than RID-lists (`32M` bits vs `50M`). The "density" of a bitmap is `1/50` because on average, for a particular bitmap, `1/50` of the bits are set to 1.  However, since the density of this bitmap is low, the bitmaps will be very compressable (there will be many "runs" of 0s and 1s).  So bitmaps still may be smaller.  (I think they would be because most states are pretty rural, and the bitmaps associated with these states would be very compressable.)
+Now let's take the state example from above.  Assuming we are only storing US residents, every individual lives in exactly one state.  And there are 50 states, we need to store 50 different bitmaps (one for each state).  In this case the uncompressed size of a bitmap index is slightly worse than RID-lists (`32M` bits vs `50M`). The "density" of a bitmap is `1/50` because on average, for a particular bitmap, `1/50` of the bits are set to 1.  On the other hand, since the density of this bitmap is low, the bitmaps will be very compressable (there will be many "runs" of 0s and 1s).
 
 Another benefit of bitmaps is they allow bitwise operations on sets of rows.  If you have two bitmaps describing two set of rows satisfying different predicates, you can take the AND of these predicates by doing a bitwise operation, likewise for OR and NOT [^1].
 
@@ -80,7 +80,7 @@ The paper now describes bit-sliced indexes.  This is best explained with an exam
 
 <img src="https://raw.githubusercontent.com/awitten1/awitten1.github.io/master/images/bit-sliced-index.png" alt="drawing" width="300"/>
 
-In this example, we have 4 rows in our table and each has a dollar_sales value.  To form a bit-sliced index, we compute the the bitmaps indicated by the colorful vertical boxes above.  
+In this example, we have 4 rows in our table and each has a dollar_sales value.  To form a bit-sliced index, we compute the the bitmaps indicated by the colorful vertical boxes above.
 
 The i<sup>th</sup> bitmap from the right above is called B<sub>i</sub>.  So B<sub>i</sub>[j] = 1 if bit i of row j is a 1. I am convinced the paper has a pretty significant error in this section.  It defines B<sub>i</sub>[j] = 1 if bit 2<sup>i</sup> of row j is a 1, but that can't be right.
 
@@ -110,13 +110,13 @@ We want to compute how many disk pages we need to read in (how many I/Os we need
 
 ```
 100 million rows
-20 rows in a page 
+20 rows in a page
 => 100 million / 20 = 5 million pages in the table.
  ```
 
 What is the probability that a particular page stores a row we need? Well, what is the probability that a particular page does not store a row we need?  That is the probability that none of the `2 million` rows in a foundset is on this page. That is $$(1 - 1/5,000,000)^{2,000,000} = (1 - \frac{(2,000,000/5,000,000)}{2,000,000})^{2,000,000} \approx e^{-2/5}$$
 
-Which means the probability that a particular page stores a row we need is: 
+Which means the probability that a particular page stores a row we need is:
 
 $$(1 - e^{-2/5})$$
 
@@ -124,7 +124,7 @@ What's the expected number of pages we need to read in?  Using linearity of expe
 
 $$5,000,000(1 - e^{-2/5}) = 1,648,400$$ disk pages
 
-That's a lot of pages!  Assuming a modern AWS gp3 disk (which is an SSD) a reasonable number of IOPS is 3000.  And, AWS assumes 16KB pages.  So, this gives us a total of `(1,648,400 pages / 4)/ 3000 IOPS = 137 seconds` 
+That's a lot of pages!  Assuming a modern AWS gp3 disk (which is an SSD) a reasonable number of IOPS is 3000.  And, AWS assumes 16KB pages.  So, this gives us a total of `(1,648,400 pages / 4)/ 3000 IOPS = 137 seconds`
 
 (I am assuming a much higher performance disk than what the paper assumes.)
 
@@ -193,7 +193,7 @@ First, some more background information.  A common schema in OLAP databases is t
 
 The SALES table is the so-called "fact table."  A fact table represents a set of observations, in this case sales.  The referenced tables (by a foreign key) are "dimension tables."
 
-An example OLAP query is 
+An example OLAP query is
 
 ```
 SELECT P.brand, T.week, C.city, SUM(S.dollar_sales)
@@ -228,7 +228,7 @@ In a query like the above one, once we have a foundset satisfying the WHERE clau
 
 Using projection indexes: for each row of the foundset, read from each projection index (one for each group by dimension), accumulating in an array cell corresponding to that groupset.
 
-Using Value-List indexes: 
+Using Value-List indexes:
 
 For all combinations of values of columns we are grouping on, compute the intersection of the bitmaps.  Intersect that with the foundset.  Compute the agg of that intersection.
 
