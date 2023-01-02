@@ -5,18 +5,17 @@ date:   2022-12-28 09:09:55 -0500
 categories: dbms indexes
 usemathjax: true
 ---
-This is my first post!
 
 In this post I'll be discussing the paper [Improved Query Performance with Variant Indexes](https://pages.cs.wisc.edu/~nil/764/DADS/36_improved-query-performance-with.pdf) by Pat O'Neil and Dallan Quass.  [Pat O'Neil](https://en.wikipedia.org/wiki/Patrick_O%27Neil) is a real database legend.  One of the things that he is known for is for co-inventing the [LSM-tree](https://www.cs.umb.edu/~poneil/lsmtree.pdf).  Hopefully I will discuss LSM-trees in a future post.
 
-## Background
+# Background
 
 First, a little background information.
 
-Different DBMSs are optimized for different workloads.  For example, some systems are optimized to support the actual operations of a business.  Let's imagine a banking application.  Users have to be able to view their balance and other account information, and also make deposits and withdrawals.  In order to service these requests, the application has to issue reads and writes to specific rows of its tables.  This kind of fine-grained access with many reads and writes to the database is what online transaction processing (OLTP) systems must be able to process efficiently.  PostgreSQL and MySQL are examples of OLTP systems.
+Different DBMSs are optimized for different workloads.  Some systems, for example, are optimized to support the actual operations of a business.  Let's imagine a banking application.  Users have to be able to view their balance and other account information, and also make deposits and withdrawals.  In order to service these requests, the application has to issue reads and writes to specific rows of its tables.  This kind of fine-grained access with many reads and writes to the database is what online transaction processing (OLTP) systems must be able to process efficiently.  PostgreSQL and MySQL are examples of OLTP systems.
 
 
-This is in contrast with online analytical processing (OLAP) type queries, which are commonly used in Data Warehouses.  An example of an OLAP query is "what is the total dollar sales that were made for particular product brand at all stores on the East coast?" Data Warehouses are usually periodically updated in a batch fashion.
+This is in contrast with online analytical processing (OLAP) type queries, which are commonly used in Data Warehouses.  An example of an OLAP query is "what is the total dollar sales that were made for all Pepsi products at all stores on the East coast?" Data Warehouses are usually periodically updated in a batch fashion.
 
 These are two very different environments. In one, the operations of the business (application) depend on efficient fine-grained access to the database. In the other, users depend on efficient aggregations and analytics than scan a potentially vast quantity of data (and perform almost exclusively read operations).
 
@@ -26,7 +25,9 @@ There's one last thing I want to mention.  When evaluating the cost of an algori
 
 Ok, now on to the paper.
 
-# Section 2
+# Section 2: Variant Indexes
+
+## Value-List Indexes
 
 First, the paper defines "Value-List" indexes.  A Value-List index is a bunch of key-value pairs, where the key is the column being indexed, and the value is a list of Row IDs (RID) where the corresponding Row has that value.  A RID is a reference to a row, not the row itself.  You can think of it like the address of a row.  It specifies where on disk the row is stored.
 
@@ -45,7 +46,7 @@ Wyoming: [74, 89]
 
 Each number here is a reference to a row in the table.
 
-The paper also briefly mentions B-trees.  I won't explain B-trees here (maybe I will in a future post).  B-trees are how we efficiently lookup a particular list in a Value-List index.  The key-value pairs are stored in the leaf level pages of a B-tree.  That way instead of scanning the RID-Lists one by one, we can traverse a tree to find the correct RID-list.
+The paper also briefly mentions B-trees.  I won't explain B-trees here (maybe I will in a future post).  B-trees are how we efficiently lookup a particular list in a Value-List index.  The key-value pairs are stored in the leaf level pages of a B-tree.  That way, instead of scanning the RID-Lists one by one, we can traverse a tree to find the correct RID-list.
 
 
 The paper now suggests an alternate way of expressing these RID-lists called Bitmaps.  First, the paper discusses row numbers.  A row number is an integer in the range `[1,M]` where given a row number, we can efficiently fetch the disk page on which the row is stored. `M` here is the max row number, and there can be no more than `M` rows in the table. I am a little unclear from the paper why a row number can't be used as a RID (maybe it can be?).  In the below discussion, I will use row number and RID synonymously.  Let's also assume that `M` is actually the number of rows stored (not the case when rows can have variable size).
@@ -54,43 +55,43 @@ I think bitmaps are best explained with an example so here's one:
 
 `Maryland: 0100100001000...00`
 
-In this example, rows with row numbers 2, 5 and 10 have Maryland for their state value.  The idea is that we store a single bit for every row in the table, and set the bit to 1 for each row number where the row satisfies the condition, and 0 for other rows.
+In this example, rows with row numbers 2, 5 and 10 have Maryland for their state value.  The idea is that we store a single bit for every row in the table, and set the bit to 1 for each row with column value "Maryland" and 0 for all others.
 
 Here's the tradeoff: when a column can take only a few distinct values (let's call the number of distinct values the "cardinality") bitmaps are much more storage efficient. Being storage efficient is good, because it means we need to spend fewer I/Os to read the index into memory.
 
-To understand why, let's imagine column for marital status. Every individual is either a married or not.  Therefore, we need two bitmaps to store this information.  This gives us `2M` bits that we need to store in total.  Assuming 32 bits in a row number (RID), a RID list index would require `32M` bits for the same index.  A RID-list index on any column requires `32M` bits because there are `M` rows and a RID requires 32 bits, and each RID appears once.  So the storage savings is huge.
+To understand why, let's imagine column for marital status. Every individual is either married or not.  Therefore, we need two bitmaps to store this information.  This gives us `2M` bits that we need to store in total.  Assuming 32 bits in a row number (RID), a RID list index would require `32M` bits for the same index.  That's because every row number has to appear in some RID-list (this is true for an index on any column).
 
 Now let's take the state example from above.  Assuming we are only storing US residents, every individual lives in exactly one state.  And there are 50 states, we need to store 50 different bitmaps (one for each state).  In this case the uncompressed size of a bitmap index is slightly worse than RID-lists (`32M` bits vs `50M`). The "density" of a bitmap is `1/50` because on average, for a particular bitmap, `1/50` of the bits are set to 1.  On the other hand, since the density of this bitmap is low, the bitmaps will be very compressable (there will be many "runs" of 0s and 1s).
 
-Another benefit of bitmaps is they allow bitwise operations on sets of rows.  If you have two bitmaps describing two set of rows satisfying different predicates, you can take the AND of these predicates by doing a bitwise operation, likewise for OR and NOT [^1].
+Another benefit of bitmaps is they allow bitwise operations on sets of rows.  If you have two bitmaps describing two set of rows satisfying different predicates, you can take the AND of these predicates by doing a bitwise operation, likewise for OR and NOT.
 
 These bitwise operations are much faster than looping over two RID lists.
 
-I found the paper's discussion of computing the COUNT of a the Foundset bitmap of a query predicate (Founset is the bitmap representing the set of rows satisfying a query) confusing.  Ultimately, what we want for count is to add up how many 1s are in the bitmap.  We can do this in parallel on different segments of the bitmap and then add up the results.
+We can also compute COUNT on a bitmap.  We want simply count the number of 1s in the bitmap.  This is also easily parallelized by partitioning the bitmap and computing counts on each segment.
 
-Now note that a bitmap most likely cannot fit onto a single 4KB disk page (or even a larger 32KB page). Assuming 8,000,000 rows, there are 8,000,000 bits = 1MB in a bitmap.  So this will require 250 4KB pages.  This requires us to partition the bitmap, which correspond to row segments of the database table.
+Now note that a bitmap most likely cannot fit onto a single 4KB disk page (or even a larger 32KB page). Assuming 8,000,000 rows, there are 8,000,000 bits = 1MB in a bitmap.  So this will require 250 4KB pages.  This requires us to partition the bitmap, with each partition corresponding to a row segment of the database table.
 
-Now, Value-Lists can have a combination of RID-lists and bitmaps.  For dense enough keys, we can use a bitmap and otherwise use a RID-list.  We can even make it so that some fragments use a bitmap and others use a RID-list (within a single key-value pair).
+Now, Value-Lists can have a combination of RID-lists and bitmaps.  For dense enough keys (greater than $\frac{1}{32}$), we can use a bitmap and otherwise use a RID-list.  We can even make it so that some fragments use a bitmap and others use a RID-list (within a single key-value pair).
 
+
+## Projection Indexes
 
 The paper now describes projection indexes.  A projection index is a copy of all values of a column stored contiguously on disk.  This is efficient for the case that all column values need to be retrieved for a particular foundset, but the entire rows are not needed.  For example, assuming a 4 byte column field, then 1000 values will fit on a single 4KB page.  If the 4 byte column fields are part of a 200 byte rows, then only 20 rows fit on a 4KB page.  And to read those same 1000 values, at least 50 pages need to be read.
 
+
+## Bit-Sliced Indexes
 
 The paper now describes bit-sliced indexes.  This is best explained with an example also.  Suppose we have the following table named SALES which has a row for every sale.  And that table has a column dollar_sales for the dollar amount of the sale.  I will also write the integer dollar amount in base 2 (suppose this number represents the number of pennies).
 
 <img src="https://raw.githubusercontent.com/awitten1/awitten1.github.io/master/images/bit-sliced-index.png" alt="drawing" width="300"/>
 
-In this example, we have 4 rows in our table and each has a dollar_sales value.  To form a bit-sliced index, we compute the the bitmaps indicated by the colorful vertical boxes above.
+In this example, we have 4 rows in our table and each has a dollar_sales value.  To form a bit-sliced index, we compute the the bitmaps indicated by the colorful vertical boxes above.  Now we have a bunch of bitmaps expressing the following predicate: the i<sup>th</sup> bit of this field is a 1.  So to compute the column value of the row with row number i, we can scan the i<sup>th</sup> bit of each of the bitmaps.
 
-The i<sup>th</sup> bitmap from the right above is called B<sub>i</sub>.  So B<sub>i</sub>[j] = 1 if bit i of row j is a 1. I am convinced the paper has a pretty significant error in this section.  It defines B<sub>i</sub>[j] = 1 if bit 2<sup>i</sup> of row j is a 1, but that can't be right.
-
-To compute the column value of the row with row number i, we can scan the i<sup>th</sup> bit of each of the bitmaps.  (With the definition the paper gives, that would be impossible.)
-
-Bitsliced indexes are good for high cardinality columns.  Supposing 20 bit fields, no matter what the cardinality of the field is, bitsliced indexes use only 20 bitmaps for the index.
+This is in one sense a different way to view projection indexes.  Bit-sliced indexes store all the same bits as projection indexes, just in a different order.  With projection indexes a single column value is stored contiguously on disk.  With Bit-sliced indexes, all the 0th bits for all column values are stored contiguously.  Same for the 1st bits, 2nd bits, and etc.  In theory this requires the same amount of storage as the projection indexes.  However, with bit-sliced indexes, we don't need to store bitmaps that are all 0.  In addition, bit-sliced indexes can potentially achieve much higher compression ratios.  For example, consider the dollar_sales example.  Let's suppose the column represents the number of pennies in a sale.  The vast majority of sales will require fewer than 20 bits (because most sales are less than $$2^20 \approx 1,000,000 = 10,000\$ $$).  Therefore, assuming 32 bit fields, the higher order bitmaps will be almost entirely 0s.  This can yield very high compression ratios.
 
 We now have established 3 types of indexes: Value-List indexes using RID-lists and bitmaps, Projection Indexes, and Bitsliced Indexes.
 
-# Section 3
+# Section 3: Evaluating Cost
 
 This section walks us through a few potential query plans for a query of the form:
 
@@ -101,7 +102,7 @@ We make the following assumptions:
 * 200 bytes per row => 20 rows per 4KB page
 * Foundset satisfying `condition` has already been computed and is represented by bitmap `B`<sub>`f`</sub>.  This is an important assumption and depends on existing Value-List indexes (which themselves are indexed with B-trees).
 
-Note: I won't be discussing the CPU contributions to cost here.
+I won't be discussing the CPU cost in much detail here.
 
 ## Query Plan 1: read rows in foundset directly to calculate the aggregation.
 
@@ -144,7 +145,7 @@ Assuming we read all pages, that gives us a response time of: `(100,000 pages / 
 
 Assume `10,000` unique dollar_sales values.
 
-We need to read in each RID-list/bitmap!  Assuming they are all RID-lists, we need to read in `100 million rows * 4 bytes/RID = 400 million bytes => 100,000 pages`.  For each RID-list/bitmap, we need to compute the cardinality of its intersection with the foundset.  Then multiply its cardinality with the corresponding value and add it to a total.
+We need to read in each RID-list/bitmap!  Assuming they are all RID-lists, we need to read in `100 million rows * 4 bytes per RID = 400 million bytes => 100,000 pages`.  For each RID-list/bitmap, we need to compute the cardinality of its intersection with the foundset.  Then multiply its cardinality with the corresponding value and add it to a total.
 
 This has the same I/O count as query plan 2, but is much more CPU intensive.
 
@@ -157,7 +158,7 @@ In query plan 4, the paper makes an assumption that looks unsafe to me.  It assu
 
 What is true, however, is that the compression ratio for the higher order bitmaps will be insane.  They will compress to almost nothing, because the assumption is that the vast majority of sales are <= $100, and therefore the higher order bitmaps will be almost entirely 0s.
 
-Therefore it's a little hard to estimate the I/O cost for this plan.  Not considering compression, it's the same as plan 2.  But give, the compression, I think there would be significant disk savings. (And now, that I think about it, the higher order bitmaps could use a RID-list.)
+Therefore it's a little hard to estimate the I/O cost for this plan.  Not considering compression, it's the same as plan 2.  But given the compression, I think there would be significant I/O savings. (And actually, the higher order bitmaps could use a RID-list.)
 
 Maybe down to ~75,000 bytes? I'm not exactly sure.
 
