@@ -82,7 +82,7 @@ Then this `Stack` can only use types with `noexcept` move constructors.  This is
 
 ## Would guaranteed NRVO help us?
 
-One comment I want to make is that it appears to me that if Named Return Value Optimization (NRVO) were guaranteed, we would be able to write into the callers stack frame *before* we mutate the stack.  For example,
+One comment I want to make is that it appears to me that if Named Return Value Optimization (NRVO) were guaranteed, we would be able to write into the callers stack frame *before* we mutate the stack. (NRVO is a form of [copy elision](https://en.cppreference.com/w/cpp/language/copy_elision).)  For example,
 
 
 ```

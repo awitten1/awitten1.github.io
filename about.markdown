@@ -4,4 +4,4 @@ title: About
 permalink: /about/
 ---
 
-This is my blog. I'm hoping I will have things to write about.
+Hi, I'm Andrew! My goal with this blog is to write about things I'm thinking about.  I'm mostly interested in programming, databases and distributed systems but I reserve the right to write about anything!
